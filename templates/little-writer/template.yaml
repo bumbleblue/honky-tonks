@@ -1,10 +1,10 @@
 schemaVersion: 1
 slug: little-writer
 name: little writer
-summary: A focused Markdown editor with inline comments, a file browser, and an agent-editable argument map for every document.
+summary: A minimal, iA Writer-inspired Markdown editor where your agent can leave inline comments for you to reply to and resolve.
 description: |
-  little writer is a quiet, monospaced Markdown editor with a small title bar and collapsible file and comment drawers. Documents and folders live in Tonk as separate, queryable entities.
-  Select a passage to start a comment thread, reply, resolve it, or assign colored labels. Each document also has a Rhetorical Structure Theory view: a visual tree of text units and spans for examining the structure of an argument. Agents can read and update the documents, tree nodes, and comment threads through Tonk's data layer.
+  little writer is a simple Markdown editor with a quiet, iA Writer-inspired layout: monospaced text, a compact title bar, and file and comment drawers that stay out of the way until you open them.
+  Your agent can leave inline comments on specific passages in your document. The passage stays highlighted so you can see what each comment refers to, reply in a thread, and resolve it when you are done. Documents and comments are shared Tonk data that both you and your agent can read and update.
 category: Writing
 version: 1.0.0
 license: MIT
@@ -13,19 +13,19 @@ author:
   url: https://github.com/goblinoats
   contact: null
 features:
-  - Focused Markdown editing with iA Writer Mono, Tonk Prose, and a compact header
-  - Folder-based document browser with search, rename, and move
-  - Passage-anchored comment threads, replies, resolution, and colored labels
+  - Minimal Markdown editing with iA Writer Mono and an unobtrusive interface
+  - Agent-authored inline comments anchored to specific passages
+  - Reply to and resolve comment threads, with optional colored labels
+  - Collapsible file browser with search, rename, and move
+  - Documents and comments stored as agent-readable and writable Tonk entities
   - Rhetorical Structure Theory canvas with linked text units, spans, relations, and nuclearity
-  - Tree comments kept distinct from text comments, with shared searchable thread entities
-  - Agent-readable and writable schemas for documents, comments, and argument trees
 images:
   - file: preview.png
     alt: little writer with the file drawer, centered Markdown column, passage highlights, and a comments drawer
-    caption: little writer showing its document browser, writing area, and threaded comments.
+    caption: A minimal Markdown editor with a passage highlight and threaded comments alongside the document.
   - file: focused.png
     alt: little writer in focused mode with the file and comment drawers closed
-    caption: The same document with both drawers closed.
+    caption: The same document with both drawers closed for focused writing.
 files:
   - file: app.yaml
     description: Complete self-contained app, schemas, portal views, embedded fonts, and editor code; no note data
