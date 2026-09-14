@@ -1,4 +1,4 @@
-AI Writer application and bundled Tonk Prose: MIT
+little writer application and bundled Tonk Prose: MIT
 
 MIT License
 
