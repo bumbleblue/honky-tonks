@@ -1,0 +1,37 @@
+schemaVersion: 1
+slug: ai-writer
+name: AI Writer
+summary: A focused Markdown editor with inline comments, a file browser, and an agent-editable argument map for every document.
+description: |
+  Write Markdown in a quiet, monospaced editor with a small title bar and collapsible file and comment drawers. Documents and folders live in Tonk as separate, queryable entities.
+  Select a passage to start a comment thread, reply, resolve it, or assign colored labels. Each document also has a Rhetorical Structure Theory view: a visual tree of text units and spans for examining the structure of an argument. Agents can read and update the documents, tree nodes, and comment threads through Tonk's data layer.
+category: Writing
+version: 1.0.0
+license: MIT
+author:
+  name: Goblin Oats
+  url: https://github.com/goblinoats
+  contact: null
+features:
+  - Focused Markdown editing with iA Writer Mono, Tonk Prose, and a compact header
+  - Folder-based document browser with search, rename, and move
+  - Passage-anchored comment threads, replies, resolution, and colored labels
+  - Rhetorical Structure Theory canvas with linked text units, spans, relations, and nuclearity
+  - Tree comments kept distinct from text comments, with shared searchable thread entities
+  - Agent-readable and writable schemas for documents, comments, and argument trees
+images:
+  - file: preview.png
+    alt: AI Writer with the file drawer, centered Markdown column, passage highlights, and a comments drawer
+    caption: AI Writer showing its document browser, writing area, and threaded comments.
+  - file: focused.png
+    alt: AI Writer in focused mode with the file and comment drawers closed
+    caption: The same document with both drawers closed.
+files:
+  - file: app.yaml
+    description: Complete self-contained app, schemas, portal views, embedded fonts, and editor code; no note data
+entrypoint: writer-app
+compatibility: Tonk CLI 0.6.15. The app uses the Tonk portal bridge, a bundled Tonk Prose editor, and embedded React Flow; no build step or external runtime assets are required.
+notes: |
+  Install app.yaml into a fresh space with tonk eval app.yaml --home writer-app. The app creates a blank Untitled document and three default comment labels when first opened. The YAML has no example documents, note text, user comments, or analysis trees; additional documents and trees can be supplied independently.
+  Re-evaluation updates the app and schemas but does not replace existing documents, folders, comments, labels, or trees. The file-browser attributes use the AI Writer namespace so they do not overlap Tonk Vault nodes. Installing into a space with an existing writer-app view may replace that view; --home explicitly changes the space home.
+  All scripts, styles, the patched Tonk Prose component, React Flow, and fonts are embedded. The application and included Tonk code are MIT licensed. The bundled iA Writer Mono font is under SIL Open Font License 1.1; notices are in LICENSE.txt and inside app.yaml. Tree generation is a rule-based draft for review, not a hosted AI service. The app uses Tonk's data bridge for persistence and the profile endpoint for the current author's name.
