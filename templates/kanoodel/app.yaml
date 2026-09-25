@@ -738,10 +738,37 @@ xyz.tonk.component!:
       };
       const score = (t) => t ? t.y.length * 2 + t.m.length : 0;
     
-      // ------------------------------------------------ calendar exports
+      // Calendar data export only: no scheduling request, email transport, or fetch.
+      const validEmail = (value) => {
+        if(typeof value!=='string'||value.length>254)return false;
+        const parts=value.split('@');
+        if(parts.length!==2||!parts[0]||parts[0].length>64)return false;
+        const [local,domain]=parts;
+        return /^[A-Za-z0-9.!#$%&'*+\/=?^_`{|}~-]+$/.test(local)
+          &&!local.startsWith('.')&&!local.endsWith('.')&&!local.includes('..')
+          &&domain.length>0&&domain.split('.').every(label=>/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(label));
+      };
+      const calendarEmails=(def,voters=[])=>{
+        if(def.settings?.requireEmail!==true)return [];
+        const seen=new Set(),emails=[];
+        for(const v of voters){
+          const email=String(v.ans?.e||'').trim(),key=email.toLowerCase();
+          if(validEmail(email)&&!seen.has(key)){seen.add(key);emails.push(email);}
+        }
+        return emails;
+      };
       const icsStamp = (ts) => new Date(ts).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-      const icsEsc = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/([,;])/g, '\\$1');
-      const calLinks = (def, sl) => {
+      const icsEsc = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/\r\n|\r|\n/g, '\\n').replace(/([,;])/g, '\\$1').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g,'');
+      const foldIcs=(line)=>{
+        const encoder=new TextEncoder();let out='',length=0;
+        for(const char of line){
+          const bytes=encoder.encode(char).length;
+          if(length+bytes>75){out+='\r\n ';length=1;}
+          out+=char;length+=bytes;
+        }
+        return out;
+      };
+      const calLinks = (def, sl, voters=[]) => {
         const all = isAll(sl);
         const s = startOf(sl, 'UTC'), e = endOf(sl, 'UTC');
         const d0 = all ? sl.d : '', d1 = all ? addDays(sl.d, 1) : '';
@@ -759,8 +786,7 @@ xyz.tonk.component!:
         const office = 'https://outlook.office.com/calendar/0/deeplink/compose?' + new URLSearchParams(op);
         const lines = [
           'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Tonk//kanoodel//EN', 'CALSCALE:GREGORIAN',
-          'METHOD:PUBLISH', 'BEGIN:VEVENT',
-          'UID:' + sl.k + '@kanoodel.tonk',
+          'BEGIN:VEVENT', 'UID:' + encodeURIComponent(String(sl.k)) + '@kanoodel.tonk',
           'DTSTAMP:' + icsStamp(Date.now()),
           all ? 'DTSTART;VALUE=DATE:' + d0.replace(/-/g, '') : 'DTSTART:' + icsStamp(s),
           all ? 'DTEND;VALUE=DATE:' + d1.replace(/-/g, '') : 'DTEND:' + icsStamp(e),
@@ -768,8 +794,12 @@ xyz.tonk.component!:
         ];
         if (body) lines.push('DESCRIPTION:' + icsEsc(body));
         if (loc) lines.push('LOCATION:' + icsEsc(loc));
+        for(const email of calendarEmails(def,voters)){
+          const [local,domain]=email.split('@');
+          lines.push('ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:'+encodeURIComponent(local)+'@'+domain.toLowerCase());
+        }
         lines.push('END:VEVENT', 'END:VCALENDAR');
-        const ics = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(lines.join('\r\n') + '\r\n');
+        const ics = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(lines.map(foldIcs).join('\r\n') + '\r\n');
         return { google, outlook, office, ics };
       };
       const slug = (s) => (String(s || 'meeting').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'meeting');
@@ -777,6 +807,7 @@ xyz.tonk.component!:
       // ----------------------------------------------------------- icons
       const svg = (d, cls) => '<svg class="ic ' + (cls || '') + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
       const I = {
+        mail: svg("<path d=\"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7\" />\n  <rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\" />"),
         lock: svg("<circle cx=\"12\" cy=\"16\" r=\"1\" />\n  <rect x=\"3\" y=\"10\" width=\"18\" height=\"12\" rx=\"2\" />\n  <path d=\"M7 10V7a5 5 0 0 1 10 0v3\" />"),
         comment: svg("<path d=\"M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z\" />"),
         voteOptions: svg("<path d=\"M13 5h8\" />\n  <path d=\"M13 12h8\" />\n  <path d=\"M13 19h8\" />\n  <path d=\"m3 17 2 2 4-4\" />\n  <path d=\"m3 7 2 2 4-4\" />"),
@@ -1324,9 +1355,11 @@ xyz.tonk.component!:
         .btn.primary { color:var(--super-light-color); }
         .step.active b { color:var(--super-light-color); }
         .win .badge { color:var(--super-light-color); }
-        .segmented { background:transparent; border:0; border-bottom:1px solid var(--border-color); border-radius:0; padding:0; gap:calc(2 * var(--gap)); }
-        .segmented button { padding:8px 2px 9px; border-radius:0; border-bottom:2px solid transparent; color:var(--text-soft-color); }
-        .segmented button.on { background:transparent; color:var(--text-color); box-shadow:none; border-bottom-color:var(--primary-color); }
+        .segmented { background:transparent; border:0; border-radius:0; padding:0; gap:calc(2 * var(--gap)); }
+        .segmented button { position:relative; padding:8px 2px 11px; border:0; border-radius:0; color:var(--text-soft-color); }
+        .segmented button::after { content:''; position:absolute; bottom:0; left:0; right:0; height:2px; border-radius:var(--radius-pill); background:var(--border-color); }
+        .segmented button.on { background:transparent; color:var(--text-color); box-shadow:none; }
+        .segmented button.on::after { background:var(--primary-color); }
         .setup-actions,.vote-foot { box-shadow:none; }
         .vote-choice button[aria-pressed=true] { box-shadow:inset 0 0 0 1px var(--border-color); }
         .date-actions .link,.date-actions .btn,.pick-btn,.select-time { font-size:12px; }
@@ -1470,6 +1503,16 @@ xyz.tonk.component!:
         .setting-switch[aria-checked=true]::before { background:var(--primary-color); border-color:var(--primary-color); }
         .setting-switch[aria-checked=true] > span { left:23px; border-color:var(--super-light-color); }
         .setting-select { width:auto; min-height:44px; max-width:100%; }
+        .vote-options-trigger { display:inline-flex; align-items:center; justify-content:space-between; gap:20px; padding:12px 18px; font-weight:400; text-align:left; background-image:none; }
+        .vote-options-trigger > .ic { flex:none; width:18px; height:18px; transform:rotate(90deg); }
+        .vote-options-dropdown { position:fixed; inset:auto; margin:0; box-sizing:border-box; padding:5px; max-height:calc(100dvh - 16px); overflow:auto; border:1px solid var(--border-color); border-radius:var(--radius-m); background:var(--bg-color); color:var(--text-color); box-shadow:var(--shadow-popup); }
+        .vote-options-dropdown::backdrop { background:transparent; }
+        .vote-options-dropdown [role=option] { display:flex; align-items:center; gap:10px; width:100%; min-height:44px; padding:10px 12px; border:1px solid transparent; border-radius:var(--radius-s); background:transparent; color:inherit; font:inherit; text-align:left; }
+        .vote-options-dropdown [role=option] > .ic { flex:none; width:18px; height:18px; visibility:hidden; }
+        .vote-options-dropdown [aria-selected=true] { background:var(--bg-soft-color); border-color:var(--border-color); }
+        .vote-options-dropdown [aria-selected=true] > .ic { visibility:visible; }
+        .vote-options-dropdown [role=option]:hover { background:var(--bg-soft-color); }
+        .vote-options-dropdown [role=option]:focus-visible { outline:2px solid var(--primary-color); outline-offset:-2px; }
         .timezone-setting { display:flex; align-items:center; gap:12px; }
         .timezone-locked { display:inline-flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:13px; }
         .timezone-locked small { color:var(--text-soft-color); }
@@ -1656,15 +1699,19 @@ xyz.tonk.component!:
           const name = String(this.st.buf.name || '').trim();
           if (!name) return this.flash('Enter your name to submit your votes.', 'name');
           if (!Object.keys(this.newVotes(this.st.local)).length) return this.flash('Choose at least one response before voting.');
+          const email=String(this.st.buf.email||'').trim();
+          if(this.pollSettings().requireEmail&&!validEmail(email)) return this.flash('Enter a valid email address to submit your votes.','email');
+          this.st.err='';this.st.errField='';
           const key = uid('v');
           const ans = { v: this.newVotes(this.st.local) };
+          if(this.pollSettings().requireEmail) ans.e=email;
           if (this.data.profile) ans.d = this.data.profile;
           const note = String(this.st.buf.note || '').trim();
           if (note && this.pollSettings().comments) ans.c = note;
           const raw = JSON.stringify(ans);
           this.pend.voters[key] = { name, raw, t: Date.now(), push: false };
           this.st.me = key; this.st.meOff = false; store.set(NS + ':me', key);
-          this.st.local = {}; delete this.st.buf.name; delete this.st.buf.note;
+          this.st.local = {}; delete this.st.buf.name; delete this.st.buf.note; delete this.st.buf.email;
           this.emit('knjoin', { knJoinKey: key, knJoinName: name, knJoinAnswers: raw, time: Date.now() });
           this.render();
         }
@@ -1774,11 +1821,12 @@ xyz.tonk.component!:
           sr.addEventListener('input', (e) => this.onInput(e));
           sr.addEventListener('change', (e) => this.onChange(e));
           sr.addEventListener('keydown', (e) => {
+            if (e.target.matches('[data-vote-options]') && ['ArrowDown','ArrowUp'].includes(e.key)) { e.preventDefault(); return this.openVoteOptions(e.target); }
             if (e.target.matches('[data-time-toggle]') && ['ArrowDown','ArrowUp'].includes(e.key)) { e.preventDefault(); return this.openTimePicker(e.target); }
             const f = e.target && e.target.dataset ? e.target.dataset.f : null;
             if (e.key !== 'Enter' || !f || e.target.tagName === 'TEXTAREA') return;
-            if (f === 'name' || f === 'note') { e.preventDefault(); this.join(); }
-            else if (f === 'myname' || f === 'mynote') { e.preventDefault(); e.target.blur(); }
+            if (f === 'name' || f === 'note' || f === 'email') { e.preventDefault(); this.join(); }
+            else if (f === 'myname' || f === 'mynote' || f === 'myemail') { e.preventDefault(); e.target.blur(); }
           });
           sr.addEventListener('pointermove', (e) => this.onMove(e));
           sr.addEventListener('pointerleave', () => this.hideGhosts(), true);
@@ -1804,6 +1852,7 @@ xyz.tonk.component!:
             else window.open(href, '_blank', 'noopener');
             return;
           }
+          if ((el=at('[data-vote-options]'))) return this.openVoteOptions(el);
           if ((el=at('button[data-setting]'))) return this.setDraftSetting(el.dataset.setting,el.getAttribute('aria-checked')!=='true');
           if ((el=at('[data-time-toggle]'))) return this.openTimePicker(el);
           if ((el=at('[data-date]'))) return this.addDate(el.dataset.date);
@@ -1878,6 +1927,7 @@ xyz.tonk.component!:
                 return this.join();
               case 'cancel': this.restoreViewerTimeZone(); st.editing = false; st.draft = null; st.week = null; return this.render();
               case 'join': return this.join();
+              case 'save-email': return this.saveEmail(this.st.buf.myemail??this.me()?.ans.e);
               case 'switch': st.me = null; st.meOff = true; store.set(NS + ':me', null); st.buf = {}; return this.render();
               case 'edit': return this.startEdit();
               case 'reopen': return this.setPollClosed(false);
@@ -1904,7 +1954,7 @@ xyz.tonk.component!:
           this.st.buf[f] = v;
         }
         onChange(e) {
-          if(e.target.dataset.setting==='allowMaybe') return this.setDraftSetting('allowMaybe',e.target.value==='yes-maybe-no');
+          if(e.target.dataset.f==='myemail') return this.saveEmail(this.st.buf.myemail??e.target.value);
           if(e.target.dataset.f==='mynote'&&!this.pollSettings().comments) return;
           if(e.target.dataset.f==='tz'&&this.data.def&&!this.st.editing&&this.pollSettings().lockTimeZone) return;
           if(e.target.dataset.timeKey) return this.changeTime(e.target);
@@ -1971,6 +2021,7 @@ xyz.tonk.component!:
           else if (!d.def || st.editing) html = this.editorHtml(d);
           else if (st.expanded) html = this.expandedHtml(d);
           else html = this.pollHtml(d);
+          this.closeVoteOptions?.();
           this.host.innerHTML = html;
           const organizerMenu=this.host.querySelector('.organizer-menu');
           if(organizerMenu) organizerMenu.addEventListener('keydown',e=>{
@@ -2170,8 +2221,8 @@ xyz.tonk.component!:
           out+='<section class="card head"><div class="head-top"><h1>'+esc(def.title)+'</h1>'+(org?this.organizerHtml(d):'')+'</div>'+(def.desc?'<p class="desc">'+esc(def.desc)+'</p>':'')+'<div class="meta">'+(def.loc?'<span>'+I.pin+esc(def.loc)+'</span>':'')+'<span>'+I.cal+def.slots.length+' time options</span><span>'+I.people+voters.length+' '+(voters.length===1?'participant':'participants')+'</span></div>'+this.legendHtml()+'</section>';
           if(closed&&!winner) out+='<div class="note-banner closed-banner" role="status"><b>Poll closed</b><span>Responses are saved. Voting is no longer available.</span></div>';
           if(winner) {
-            const L=calLinks(def,winner);
-            out+='<section class="card win"><span class="badge">'+I.check+'Final time</span><div class="win-when">'+esc(fmtYmd(dayOf(winner,tz),LONG))+' · '+esc(slotRange(winner,tz))+'</div><div class="win-tz">'+esc(tzLabel(tz))+'</div><div class="addcal"><span>'+I.cal+'Add to calendar</span>'+[['Google',L.google],['Outlook.com',L.outlook],['Office 365',L.office]].map(([name,url])=>'<a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener" data-ext>'+name+'</a>').join('')+'<a class="btn sm" href="'+esc(L.ics)+'" download="'+esc(slug(def.title))+'.ics">Apple / .ics</a></div></section>';
+            const L=calLinks(def,winner,voters);
+            out+='<section class="card win"><span class="badge">'+I.check+'Final time</span><div class="win-when">'+esc(fmtYmd(dayOf(winner,tz),LONG))+' · '+esc(slotRange(winner,tz))+'</div><div class="win-tz">'+esc(tzLabel(tz))+'</div><div class="addcal"><span>'+I.cal+'Add to calendar</span>'+[['Google',L.google],['Outlook.com',L.outlook],['Office 365',L.office]].map(([name,url])=>'<a class="btn sm" href="'+esc(url)+'" target="_blank" rel="noopener" data-ext>'+name+'</a>').join('')+'<a class="btn sm" href="'+esc(L.ics)+'" download="'+esc(slug(def.title))+'.ics">Download .ics</a></div>'+this.calendarHintHtml(d)+'</section>';
           }
           out+='<div class="poll-tools">'+this.tzSelect()+'<div class="filters"><label>Sort <select data-f="sort" class="inp"><option value="date"'+(st.sort==='date'?' selected':'')+'>By date</option><option value="pop"'+(st.sort==='pop'?' selected':'')+'>By popularity</option></select></label>'+(pastN?'<button type="button" class="link" data-past="'+(st.showPast?'0':'1')+'">'+(st.showPast?'Hide':'Show')+' past times ('+pastN+')</button>':'')+'</div></div><div class="mobile-tabs segmented"><button type="button" data-mobile-tab="vote" class="'+(st.mobileTab!=='participants'?'on':'')+'" aria-pressed="'+(st.mobileTab!=='participants')+'">Your vote</button><button type="button" data-mobile-tab="participants" class="'+(st.mobileTab==='participants'?'on':'')+'" aria-pressed="'+(st.mobileTab==='participants')+'">Participants · '+voters.length+'</button></div><div class="poll-layout" data-mobile="'+(st.mobileTab||'vote')+'"><section class="card results-card"><div class="participants-head"><h2>Participants <span class="count">'+voters.length+'</span></h2><span class="small-label">'+visible.length+' options</span><button type="button" class="icon-btn expand-control" data-act="expand" aria-label="Expand poll table" title="Expand poll table" aria-haspopup="dialog">'+this.expandIcon()+'</button></div>';
           if(!voters.length) out+='<div class="empty">'+I.people+'<h3>No participants</h3><p>Share this space to invite participants.'+(closed?'<br>Voting is closed.':'')+'</p></div>';
@@ -2194,9 +2245,10 @@ xyz.tonk.component!:
             out+='<div class="vote-row'+(isPast(s,tz,now)?' is-past':'')+'"><div><div class="vote-time">'+esc(slotRange(s,tz))+'</div><div class="vote-count">'+I.people+tt.y.length+' yes'+(tt.m.length?' · '+tt.m.length+' if need be':'')+(isBest(s)?' · Best':'')+'</div></div><div class="vote-choice" role="group" aria-label="'+esc(fmtYmd(day,SHORT)+' '+slotRange(s,tz))+'">'+this.responseChoices(def).map(a=>'<button type="button" class="vote-'+a+'" data-vote="'+esc(s.k)+'" data-answer="'+a+'" aria-label="'+{y:'Yes',m:'If need be',n:'No'}[a]+'" title="'+{y:'Yes',m:'If need be',n:'No'}[a]+'" aria-pressed="'+(mine===a)+'"'+(closed?' disabled':'')+'>'+VOTE_ICON[a]+'</button>').join('')+'</div>'+(!this.pollSettings(def).allowMaybe&&mine==='m'?'<div class="earlier-maybe">'+VOTE_ICON.m+'Previous response: If need be</div>':'')+(org&&!closed?'<button type="button" class="link select-time" data-pick="'+esc(s.k)+'">Choose as final time</button>':'')+'</div>';
           }
           if(!list.length) out+='<div class="empty"><p>All proposed times have passed.<br>Show past times to see them.</p></div>';
+          if(me&&this.pollSettings(def).requireEmail) out+='<div class="vote-foot">'+this.emailFieldHtml('myemail',st.buf.myemail??me.ans.e)+(closed&&st.err?'<p class="err" role="alert">'+esc(st.err)+'</p>':'')+'</div>';
           if(!closed) {
             out+='<div class="vote-foot">'+(st.err?'<p class="err" role="alert">'+esc(st.err)+'</p>':'');
-            if(!me) out+=this.commentFieldHtml('note',st.buf.note)+'<p class="hint">'+Object.values(myVotes).filter(x=>x==='y'||x==='m').length+' times work for you</p><div class="foot-buttons"><button type="button" class="btn" data-act="decline">Decline all</button><button type="button" class="btn primary" data-act="join">Vote</button></div>';
+            if(!me) out+=this.emailFieldHtml('email',st.buf.email)+this.commentFieldHtml('note',st.buf.note)+'<p class="hint">'+Object.values(myVotes).filter(x=>x==='y'||x==='m').length+' times work for you</p><div class="foot-buttons"><button type="button" class="btn" data-act="decline">Decline all</button><button type="button" class="btn primary" data-act="join">Vote</button></div>';
             else out+='<p class="saved" role="status">'+I.check+(me.pending?'Saving…':'Your votes are saved')+'</p><details class="response-editor"'+(st.responseEditorOpen?' open':'')+'><summary class="small-label">'+I.chevron+(this.pollSettings(def).comments?'Edit name or comment':'Edit name')+'</summary><label class="response-field"><span>Your name</span><input class="inp" data-f="myname" aria-label="Your name" maxlength="60" value="'+esc(st.buf.myname!=null?st.buf.myname:me.name)+'"></label>'+this.commentFieldHtml('mynote',st.buf.mynote!=null?st.buf.mynote:me.ans.c)+'</details><div class="foot-buttons"><button type="button" class="btn sm" data-act="switch">Add another participant</button></div>';
             out+='</div>';
           }
@@ -2254,10 +2306,11 @@ xyz.tonk.component!:
             out+='</tbody></table></div>';
           }
           out+='<footer class="expanded-footer"><div class="expanded-footer-info">'+(closed?'<span class="small-label">Voting is closed.</span>':this.answerLegendHtml(def)+(this.hasEarlierMaybe(d)?'<span class="legacy-vote-note">Earlier “If need be” responses are kept.</span>':'')+'<span class="small-label">Click your answer to change it.</span>')+(pastN?'<button type="button" class="link" data-past="'+(st.showPast?'0':'1')+'" data-xfocus="past">'+(st.showPast?'Hide':'Show')+' past times ('+pastN+')</button>':'')+'</div>';
+          if(me&&this.pollSettings(def).requireEmail) out+='<div class="expanded-identify">'+this.emailFieldHtml('myemail',st.buf.myemail??me.ans.e)+'</div>';
           if(st.err) out+='<div class="err expanded-error" role="alert">'+esc(st.err)+'</div>';
           if(closed) out+='<div class="expanded-actions"><button type="button" class="btn" data-act="collapse">Done</button></div>';
           else if(me) out+='<div class="expanded-actions"><span class="saved" role="status">'+I.check+(me.pending?'Saving…':'Your votes are saved')+'</span><button type="button" class="btn primary" data-act="collapse" data-xfocus="done">Done</button></div>';
-          else if(st.expandedIdentify) out+='<div class="expanded-identify"><label><span>Your name</span><input class="inp'+(st.errField==='name'?' bad':'')+'" data-f="name" aria-label="Your name" placeholder="Your name" maxlength="60" value="'+esc(st.buf.name||'')+'"></label>'+this.commentFieldHtml('note',st.buf.note)+'<div class="expanded-actions"><button type="button" class="btn" data-act="expanded-back">Back</button><button type="button" class="btn primary" data-act="join">Vote</button></div></div>';
+          else if(st.expandedIdentify) out+='<div class="expanded-identify"><label><span>Your name</span><input class="inp'+(st.errField==='name'?' bad':'')+'" data-f="name" aria-label="Your name" placeholder="Your name" maxlength="60" value="'+esc(st.buf.name||'')+'"></label>'+this.emailFieldHtml('email',st.buf.email)+this.commentFieldHtml('note',st.buf.note)+'<div class="expanded-actions"><button type="button" class="btn" data-act="expanded-back">Back</button><button type="button" class="btn primary" data-act="join">Vote</button></div></div>';
           else out+='<div class="expanded-actions"><button type="button" class="btn" data-act="expanded-decline" data-xfocus="decline">Decline all</button><button type="button" class="btn primary" data-act="expanded-continue" data-xfocus="continue">Continue</button></div>';
           return out+'</footer></div></dialog>';
         }
@@ -2363,7 +2416,7 @@ xyz.tonk.component!:
         }
         pollSettings(def=this.data?.def) {
           const s=def?.settings||{};
-          return {lockTimeZone:s.lockTimeZone===true,allowMaybe:s.allowMaybe!==false,comments:s.comments!==false};
+          return {lockTimeZone:s.lockTimeZone===true,allowMaybe:s.allowMaybe!==false,comments:s.comments!==false,requireEmail:s.requireEmail===true};
         }
         pollTimeZone(def=this.data?.def) {
           return this.pollSettings(def).lockTimeZone ? (def.tz||'UTC') : this.st.tz;
@@ -2380,7 +2433,7 @@ xyz.tonk.component!:
           return Object.fromEntries(Object.entries(votes||{}).filter(([key,answer])=>options.includes(answer)&&this.data.def.slots.some(s=>s.k===key)));
         }
         setDraftSetting(key,value) {
-          if(!['lockTimeZone','allowMaybe','comments'].includes(key))return;
+          if(!['lockTimeZone','allowMaybe','comments','requireEmail'].includes(key))return;
           const dr=this.draft();
           dr.settings=Object.assign(this.pollSettings(dr),{[key]:value});
           this.saveDraft();this.render();
@@ -2405,7 +2458,7 @@ xyz.tonk.component!:
         }
         settingsHtml() {
           const s=this.pollSettings(this.draft());
-          return '<section class="card settings-card" id="poll-settings" tabindex="-1"><h2>Settings</h2><div class="setting-row"><span class="setting-icon">'+I.comment+'</span><div class="setting-copy"><b>Comments</b><p class="hint">Allow comments with responses. Existing comments are kept when turned off.</p></div>'+this.settingSwitch('comments','Comments',s.comments)+'</div><div class="setting-row"><span class="setting-icon">'+I.voteOptions+'</span><div class="setting-copy"><label for="poll-vote-options">Vote options</label><p class="hint">The answers participants can give for each time.</p></div><select class="inp setting-select" id="poll-vote-options" data-setting="allowMaybe"><option value="yes-maybe-no"'+(s.allowMaybe?' selected':'')+'>Yes / If need be / No</option><option value="yes-no"'+(!s.allowMaybe?' selected':'')+'>Yes / No only</option></select></div>'+(!s.allowMaybe?'<p class="hint settings-note">Existing “If need be” responses are kept. New answers can be Yes or No.</p>':'')+'</section>';
+          return '<section class="card settings-card" id="poll-settings" tabindex="-1"><h2>Settings</h2><div class="setting-row"><span class="setting-icon">'+I.mail+'</span><div class="setting-copy"><b>Require participant emails</b><p class="hint">Collect emails for the .ics guest list. Kanoodel never sends emails.</p></div>'+this.settingSwitch('requireEmail','Require participant emails',s.requireEmail)+'</div><div class="setting-row"><span class="setting-icon">'+I.comment+'</span><div class="setting-copy"><b>Comments</b><p class="hint">Allow comments with responses. Existing comments are kept when turned off.</p></div>'+this.settingSwitch('comments','Comments',s.comments)+'</div><div class="setting-row"><span class="setting-icon">'+I.voteOptions+'</span><div class="setting-copy"><label for="poll-vote-options">Vote options</label><p class="hint">The answers participants can give for each time.</p></div>'+this.voteOptionsHtml(s.allowMaybe)+'</div>'+(!s.allowMaybe?'<p class="hint settings-note">Existing “If need be” responses are kept. New answers can be Yes or No.</p>':'')+'</section>';
         }
         commentFieldHtml(field,value) {
           if(!this.pollSettings().comments)return '';
@@ -2417,6 +2470,80 @@ xyz.tonk.component!:
         }
         hasEarlierMaybe(d=this.data) {
           return !this.pollSettings(d.def).allowMaybe&&d.voters.some(v=>d.def.slots.some(s=>v.ans.v?.[s.k]==='m'));
+        }
+        voteOptionsHtml(allowMaybe) {
+          return '<button type="button" class="inp setting-select vote-options-trigger" id="poll-vote-options" data-setting="allowMaybe" data-vote-options role="combobox" aria-label="Vote options" aria-haspopup="listbox" aria-expanded="false"><span>'+(allowMaybe?'Yes / If need be / No':'Yes / No only')+'</span>'+I.chevron+'</button>';
+        }
+        openVoteOptions(trigger) {
+          if(this.closeVoteOptions) { this.closeVoteOptions(); return; }
+          const selected=this.pollSettings(this.draft()).allowMaybe;
+          const popup=document.createElement('div');
+          popup.className='vote-options-dropdown';popup.id='kn-vote-options-list';
+          popup.setAttribute('popover','auto');popup.setAttribute('role','listbox');
+          popup.setAttribute('aria-label','Vote options');
+          popup.innerHTML=[[true,'Yes / If need be / No'],[false,'Yes / No only']].map(([value,label])=>'<button type="button" role="option" tabindex="-1" aria-selected="'+(value===selected)+'" data-vote-choice="'+value+'">'+I.check+'<span>'+label+'</span></button>').join('');
+          this.host.append(popup);
+          trigger.setAttribute('aria-expanded','true');trigger.setAttribute('aria-controls',popup.id);
+          const events=new AbortController();
+          const cleanup=()=>{
+            events.abort();popup.remove();
+            trigger.setAttribute('aria-expanded','false');trigger.removeAttribute('aria-controls');
+            if(this.closeVoteOptions===close)this.closeVoteOptions=null;
+          };
+          const close=()=>{ if(popup.matches(':popover-open'))popup.hidePopover();cleanup(); };
+          this.closeVoteOptions=close;
+          popup.addEventListener('toggle',e=>{if(e.newState==='closed')cleanup();},{signal:events.signal});
+          popup.addEventListener('click',e=>{
+            const option=e.target.closest('[data-vote-choice]');if(!option)return;
+            close();this.setDraftSetting('allowMaybe',option.dataset.voteChoice==='true');
+          },{signal:events.signal});
+          popup.addEventListener('keydown',e=>{
+            const options=[...popup.querySelectorAll('[role="option"]')],index=options.indexOf(this.sr.activeElement);
+            let next;
+            if(e.key==='ArrowDown')next=(index+1)%options.length;
+            if(e.key==='ArrowUp')next=(index+options.length-1)%options.length;
+            if(e.key==='Home')next=0;
+            if(e.key==='End')next=options.length-1;
+            if(next!==undefined){e.preventDefault();options[next].focus({preventScroll:true});}
+            if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();trigger.focus({preventScroll:true});}
+            if(e.key==='Tab'){close();trigger.focus({preventScroll:true});}
+          },{signal:events.signal});
+          popup.showPopover();
+          const rect=trigger.getBoundingClientRect(),margin=8;
+          const width=Math.min(Math.max(240,rect.width),window.innerWidth-2*margin);
+          popup.style.width=width+'px';
+          const height=popup.getBoundingClientRect().height;
+          const below=window.innerHeight-rect.bottom-margin;
+          popup.style.left=Math.max(margin,Math.min(rect.right-width,window.innerWidth-width-margin))+'px';
+          popup.style.top=Math.max(margin,below<height+6?rect.top-height-6:rect.bottom+6)+'px';
+          popup.querySelector('[aria-selected="true"]').focus({preventScroll:true});
+          window.addEventListener('resize',close,{signal:events.signal});
+          window.addEventListener('scroll',close,{signal:events.signal});
+          this.sr.addEventListener('scroll',e=>{if(!popup.contains(e.target))close();},{capture:true,signal:events.signal});
+        }
+        emailFieldHtml(field,value) {
+          if(!this.pollSettings().requireEmail)return '';
+          const invalid=this.st.errField===field;
+          return '<label class="response-field"><span>Email <span class="muted">(required)</span></span><input class="inp'+(invalid?' bad':'')+'" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" required maxlength="254" data-f="'+field+'" aria-label="Email" aria-describedby="'+field+'-hint"'+(invalid?' aria-invalid="true"':'')+' value="'+esc(value||'')+'" placeholder="you@example.com"><span class="hint" id="'+field+'-hint">Included in the .ics guest list and shared with this space. Kanoodel never sends emails.</span></label>'+(field==='myemail'?'<button type="button" class="btn sm" data-act="save-email">Save email</button>':'');
+        }
+        saveEmail(value) {
+          const me=this.me();
+          if(!me||!this.pollSettings().requireEmail)return;
+          const email=String(value||'').trim();
+          if(!validEmail(email))return this.flash('Enter a valid email address.','myemail');
+          delete this.st.buf.myemail;
+          this.st.err='';this.st.errField='';
+          if(email===me.ans.e)return this.render();
+          // Contact details remain editable after a final time closes voting.
+          const raw=JSON.stringify(Object.assign({},me.ans,{e:email}));
+          this.pend.voters[me.key]={name:me.name,raw,t:Date.now(),push:!me.row};
+          if(me.row)this.emitAnswer(me.key,me.name,raw);
+          this.render();
+        }
+        calendarHintHtml(d) {
+          if(!this.pollSettings(d.def).requireEmail)return '';
+          const count=calendarEmails(d.def,d.voters).length;
+          return '<p class="hint">The .ics file includes '+count+' participant '+(count===1?'email':'emails')+'. Open it in your calendar to review guests. Send invitations from your calendar; Kanoodel never sends emails.</p>';
         }
     
       });
