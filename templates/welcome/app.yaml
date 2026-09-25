@@ -717,7 +717,7 @@ component!:
       const STORY = [
         { id: 'empty',    cap: 'In the beginning, we have an empty space', cx: 350 },
         { id: 'canvas',   cap: 'Like a canvas that waits to be painted', cx: 350 },
-        { id: 'examples', cap: 'Put in your notes, your home-made software, your reusable tools', cx: 640 },
+        { id: 'examples', cap: 'Throw in your notes, your home-made software, your reusable tools', cx: 640 },
         { id: 'grow',     cap: 'Store everything in one place and watch each space grow', cx: 643 },
         { id: 'document', cap: 'Treat the space like a document that lives on your device' },
         { id: 'offline',  cap: 'That you can use online ● and offline ○' },
